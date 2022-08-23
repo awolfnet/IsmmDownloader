@@ -9,6 +9,7 @@ using System.Web;
 using IsmmDownloader.Util;
 using IsmmDownloader.Model;
 using System.Windows.Forms;
+using System.Text.RegularExpressions;
 
 namespace IsmmDownloader.Controller
 {
@@ -29,6 +30,30 @@ namespace IsmmDownloader.Controller
 
         public Dictionary<string, DateTime> AcknowledgeNotification = new Dictionary<string, DateTime>();
         public Dictionary<string, DateTime> CompleteNotification = new Dictionary<string, DateTime>();
+
+        public List<FaultsOrder> FaultsOrderList = new List<FaultsOrder>();
+
+        public class FetchDoneEventArgs : EventArgs
+        {
+            public List<FaultsOrder> FaultsOrderList { set; get; }
+        }
+        public event EventHandler<FetchDoneEventArgs> OnFetchDone;
+
+        public class FetchProgressEventArgs : EventArgs
+        {
+            public FaultsOrder Order { set; get; }
+            public int Done { set; get; }
+            public int Total { set; get; }
+        }
+        public event EventHandler<FetchProgressEventArgs> OnFetchProgress;
+
+
+        public class FetchRetryEventArgs : EventArgs
+        {
+            public string FaultsID { set; get; }
+            public int Retry { set; get; }
+        }
+        public event EventHandler<FetchRetryEventArgs> OnFetchRetry;
 
         public Faults()
         {
@@ -98,69 +123,12 @@ namespace IsmmDownloader.Controller
         {
             System.Diagnostics.Debug.WriteLine("_timerCheck_Elapsed");
 
-            CheckOrder();
         }
 
         private void _timerUpdate_Elapsed(object sender, ElapsedEventArgs e)
         {
             System.Diagnostics.Debug.WriteLine("_timerUpdate_Elapsed");
-            if (draw >= 60)
-            {
-                _browserView.RefreshPage();
-                draw = 0;
 
-            }
-            this.Fetch();
-
-        }
-
-        public void CheckOrder()
-        {
-            DataGridViewRowCollection dataGridViewRow = _dataView.GetDatatable();
-            for (int i = 0; i < dataGridViewRow.Count - 1; i++)
-            {
-                string id = dataGridViewRow[i].Cells["ID"].Value.ToString();
-                string fid = dataGridViewRow[i].Cells["Site Fault Number"].Value.ToString();
-                DateTime reportedDate;
-                DateTime.TryParse(dataGridViewRow[i].Cells["Reported Date"].Value.ToString(), out reportedDate);
-
-
-                if (string.IsNullOrWhiteSpace(dataGridViewRow[i].Cells["Fault Acknowledged Date"].Value.ToString()))
-                {
-                    if (AcknowledgeNotification.ContainsKey(id))
-                    {
-                        continue;
-                    }
-
-                    if (reportedDate.AddHours(1) < DateTime.Now)
-                    {
-                        faultsMessages.Enqueue(new FaultsMessage()
-                        {
-                            Message = $"[!!] Order need to acknowledge: https://ismm.sg/ce/fault/{id}, reported at {reportedDate}."
-                        });
-                        AcknowledgeNotification.Add(id, reportedDate);
-                    }
-                }
-
-                if (string.IsNullOrWhiteSpace(dataGridViewRow[i].Cells["Work Completed Date"].Value.ToString()))
-                {
-                    if (CompleteNotification.ContainsKey(id))
-                    {
-                        continue;
-                    }
-
-                    if (reportedDate.AddHours(4) < DateTime.Now)
-                    {
-                        faultsMessages.Enqueue(new FaultsMessage()
-                        {
-                            Message = $"[!!!] Order need to complete: https://ismm.sg/ce/fault/{id}, reported at {reportedDate}."
-                        });
-                        CompleteNotification.Add(id, reportedDate);
-                    }
-                }
-            }
-
-            System.Diagnostics.Debug.WriteLine($"Faults messages queue length: {faultsMessages.Count}");
         }
 
         public void Fetch()
@@ -193,8 +161,14 @@ namespace IsmmDownloader.Controller
                     throw new Exception("Empty response");
                 }
 
+                FaultsOrderList.Clear();
                 var o = Newtonsoft.Json.JsonConvert.DeserializeObject(json);
-                UpdateDatatable((Newtonsoft.Json.Linq.JObject)o);
+                AddOrderToList((Newtonsoft.Json.Linq.JObject)o);
+                FetchDoneEventArgs args = new FetchDoneEventArgs()
+                {
+                    FaultsOrderList = FaultsOrderList
+                };
+                OnFetchDone?.Invoke(this, args);
             }
             catch (Exception ex)
             {
@@ -202,13 +176,15 @@ namespace IsmmDownloader.Controller
             }
         }
 
-        public void UpdateDatatable(Newtonsoft.Json.Linq.JObject jobject)
+        private void AddOrderToList(Newtonsoft.Json.Linq.JObject jobject)
         {
             int recordsTotal = int.Parse(jobject.GetValue("recordsTotal").ToString());
             int recordsFiltered = int.Parse(jobject.GetValue("recordsFiltered").ToString());
+
             Newtonsoft.Json.Linq.JArray faultsOrders = (Newtonsoft.Json.Linq.JArray)jobject.GetValue("data");
 
-            List<FaultsOrder> list = new List<FaultsOrder>();
+            int ordersTotal = faultsOrders.Count;
+            int ordersDone = 0;
 
             foreach (Newtonsoft.Json.Linq.JObject order in faultsOrders)
             {
@@ -246,10 +222,83 @@ namespace IsmmDownloader.Controller
                     end_user_contact = order.GetValue("end_user_contact").ToString(),
                     cu = order.GetValue("cu").ToString(),
                     rmk = order.GetValue("rmk").ToString()
+
                 };
-                list.Add(faultsOrder);
+                faultsOrder.fault_pictures = FetchFaultPictures(faultsOrder.id);
+                ordersDone++;
+                FetchProgressEventArgs args = new FetchProgressEventArgs()
+                {
+                    Order = faultsOrder,
+                    Done = ordersDone,
+                    Total = ordersTotal
+                };
+                OnFetchProgress?.Invoke(this, args);
+                FaultsOrderList.Add(faultsOrder);
             }
-            _dataView.UpdateDatatable(list);
+        }
+
+        public string[] FetchFaultPictures(string FaultsID)
+        {
+            draw++;
+
+            HTTP http = new HTTP();
+            http.Cookies = _cookies;
+            Uri uri = new Uri($"https://ismm.sg/ce/fault/{FaultsID}");
+            string response = string.Empty;
+            int retry = 0;
+            while (retry < 3)
+            {
+                if (retry > 0)
+                {
+                    FetchRetryEventArgs args = new FetchRetryEventArgs()
+                    {
+                        FaultsID=FaultsID,
+                        Retry = retry
+                    };
+                    OnFetchRetry?.Invoke(this, args);
+                }
+
+                try
+                {
+                    response = http.Request(uri);
+                    if (!string.IsNullOrEmpty(response))
+                    {
+                        break;
+                    }
+                    retry++;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Retry:{retry}");
+                    System.Diagnostics.Debug.WriteLine(ex);
+                }
+            }
+
+
+
+            List<string> pictures = new List<string>();
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    throw new Exception("Empty response");
+                }
+
+                Match hrefMatch = Regex.Match(response, "<a href=\"(?<href>.*.)\" data-lightbox=\"img-fault\">");
+                while (hrefMatch.Success)
+                {
+                    pictures.Add(hrefMatch.Groups["href"].Value);
+
+                    hrefMatch = hrefMatch.NextMatch();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex);
+            }
+
+            return pictures.ToArray();
         }
 
         public void StopMonitor()

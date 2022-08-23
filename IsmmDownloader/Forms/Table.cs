@@ -14,10 +14,10 @@ using System.Windows.Forms;
 
 namespace IsmmDownloader.Forms
 {
-    public partial class ControlPanel : Form, IFaultsDataView
+    public partial class Table : Form, IFaultsDataView
     {
         private Faults _faults = null;
-        public ControlPanel()
+        public Table()
         {
             InitializeComponent();
         }
@@ -30,6 +30,9 @@ namespace IsmmDownloader.Forms
         private void ControlPanel_Load(object sender, EventArgs e)
         {
             SetController(Program.Faults);
+            _faults.OnFetchProgress += Faults_OnFetchProgress;
+            _faults.OnFetchDone += Faults_OnFetchDone;
+            labelProgress.BackColor = System.Drawing.Color.Transparent;
             //Fault Number	Site Fault Number	Trade	Trade Category	Type of Fault	Impact	Site	Building	Floor	Room	Cancel Status	Reported Date	Fault Acknowledged Date	Responded on Site Date	RA Conducted Date	Work Started Date	Work Completed Date	Attended By	Action(s) Taken	Other Trades Required Date	Cost Cap Exceed Date	Assistance Requested Date	Fault Reference	End User Name	End User Priority	End User Contact	Incident Report	Reported By	Remarks	
             //Fault Number,Site Fault Number,Trade,Trade Category,Type of Fault,Impact,Site,Building,Floor,Room,Cancel Status,Reported Date,Fault Acknowledged Date,
             //Responded on Site Date,RA Conducted Date,Work Started Date,Work Completed Date,Attended By,Action(s) Taken,Other Trades Required Date,Cost Cap Exceed Date,
@@ -71,6 +74,19 @@ namespace IsmmDownloader.Forms
             _faults.SetDataView(this);
         }
 
+        private void Faults_OnFetchDone(object sender, Faults.FetchDoneEventArgs e)
+        {
+            UpdateDatatable(e.FaultsOrderList);
+        }
+
+        private void Faults_OnFetchProgress(object sender, Faults.FetchProgressEventArgs e)
+        {
+            System.Diagnostics.Debug.WriteLine($"Fetch progress:{e.Done}/{e.Total}({e.Order.id})");
+            progressBar1.Maximum = e.Total;
+            progressBar1.Value = e.Done;
+            labelProgress.Text = $"{e.Done}/{e.Total}({e.Order.id})";
+        }
+
         public void UpdateDatatable(List<FaultsOrder> orders)
         {
             if (dataGridView1.InvokeRequired)
@@ -88,10 +104,7 @@ namespace IsmmDownloader.Forms
         {
             foreach (var order in orders)
             {
-                int rowid = FindOrderID(order.id);
-                if (rowid < 0)
-                {
-                    dataGridView1.Rows.Add(new string[] {
+                dataGridView1.Rows.Add(new string[] {
                         order.id,
                         order.site_fault_number,
                         order.created_at,
@@ -100,67 +113,37 @@ namespace IsmmDownloader.Forms
                         order.ra_acknowledged_date,
                         order.work_started_date,
                         order.work_completed_date
-                    });
-
-                    _faults.faultsMessages.Enqueue(new FaultsMessage()
-                    {
-                        Message = $"[!] You have a new order: https://ismm.sg/ce/fault/{order.id}, reported at {order.created_at}."
-                    });
-                }
-                else
-                {
-                    dataGridView1.Rows[rowid].Cells["Fault Acknowledged Date"].Value = order.responded_date;
-                    dataGridView1.Rows[rowid].Cells["Responded on Site Date"].Value = order.site_visited_date;
-                    dataGridView1.Rows[rowid].Cells["RA Conducted Date"].Value = order.ra_acknowledged_date;
-                    dataGridView1.Rows[rowid].Cells["Work Started Date"].Value = order.work_started_date;
-                    dataGridView1.Rows[rowid].Cells["Work Completed Date"].Value = order.work_completed_date;
-                }
-
+                 });
             }
 
-        }
-
-        private int FindOrderID(string OrderID)
-        {
-            for (int i = 0; i < dataGridView1.Rows.Count; i++)
-            {
-                if (dataGridView1.Rows[i].Cells["ID"].Value == null)
-                {
-                    continue;
-                }
-
-                if (dataGridView1.Rows[i].Cells["ID"].Value.Equals(OrderID))
-                {
-                    return i;
-                }
-            }
-
-            return -1;
-
-        }
-
-        public void Insert()
-        {
-            throw new NotImplementedException();
-        }
-
-        private void sendToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            if (_faults.faultsMessages.Count > 0)
-            {
-                FaultsMessage message = _faults.faultsMessages.Dequeue();
-                Program.Message.SendMesage("ISMM Reminder", message.Message);
-            }
-        }
-
-        private void clearAllToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            _faults.faultsMessages.Clear();
         }
 
         public DataGridViewRowCollection GetDatatable()
         {
             return dataGridView1.Rows;
+        }
+
+        private void reloadToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            DateTime dateFrom = this.dateFrom.Value;
+            DateTime dateTo = this.dateTo.Value;
+
+            _faults.Fetch(dateFrom, dateTo);
+        }
+
+        private void label1_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void btnFilterOK_Click(object sender, EventArgs e)
+        {
+            filterBox.Visible = false;
+        }
+
+        private void filterToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            filterBox.Visible = true;
         }
     }
 }

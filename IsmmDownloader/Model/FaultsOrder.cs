@@ -72,6 +72,8 @@ namespace IsmmDownloader.Model
         /// </summary>
         public string rm { set; get; }
 
+        //Cancel Status
+
         /// <summary>
         /// Reported Date
         /// </summary>
@@ -159,5 +161,7 @@ namespace IsmmDownloader.Model
         /// Remarks
         /// </summary>
         public string rmk { set; get; }
+
+        public string[] fault_pictures { set; get; }
     }
 }

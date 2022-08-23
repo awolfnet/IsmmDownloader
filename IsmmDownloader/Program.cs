@@ -23,14 +23,14 @@ namespace IsmmDownloader
 
         }
 
-        private static ControlPanel _controlPanel = null;
-        public static ControlPanel ControlPanel
+        private static Table _controlPanel = null;
+        public static Table ControlPanel
         {
             get
             {
                 if (_controlPanel == null || _controlPanel.IsDisposed)
                 {
-                    _controlPanel = new ControlPanel();
+                    _controlPanel = new Table();
                 }
                 return _controlPanel;
             }
@@ -48,20 +48,6 @@ namespace IsmmDownloader
                 return _faults;
             }
         }
-
-        public static Forms.Message _message = null;
-        public static Forms.Message Message
-        {
-            get
-            {
-                if (_message == null || _message.IsDisposed)
-                {
-                    _message = new Forms.Message();
-                }
-                return _message;
-            }
-        }
-
 
         /// <summary>
         /// The main entry point for the application.

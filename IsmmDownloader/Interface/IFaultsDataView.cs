@@ -15,7 +15,5 @@ namespace IsmmDownloader.Interface
         void UpdateDatatable(List<FaultsOrder> orders);
 
         DataGridViewRowCollection GetDatatable();
-
-        void Insert();
     }
 }
