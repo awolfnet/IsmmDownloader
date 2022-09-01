@@ -289,7 +289,6 @@ namespace IsmmDownloader.Controller
                 while (hrefMatch.Success)
                 {
                     pictures.Add(hrefMatch.Groups["href"].Value);
-
                     hrefMatch = hrefMatch.NextMatch();
                 }
             }
